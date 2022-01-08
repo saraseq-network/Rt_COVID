@@ -1,7 +1,7 @@
 ---
 title: "Estimativa do Número de Reprodução Efetivo (Rt) da COVID19"
 subtitle: "Portugal e Administrações Regionais de Saúde"
-author: Sara Sequeira, Teresa da Penha Coutinho e Inês Marçal Antunes
+author: Sara Sequeira
 date: "Novembro, 2020"
 output:
   html_document:
