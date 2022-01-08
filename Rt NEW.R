@@ -34,11 +34,7 @@ library(scales)
 library(htmltools)
 library(ggrepel)
 
-
-setwd("C:/Users/teres/Desktop/EPIVET/COVID19/Rt_COVID19")
 setwd("~/Desktop/Treino Estágio 2020-2021/Rt_COVID19")
-setwd("C:/Users/ines/Documents/Estágio Epidemiologia/COVID19/Rt_COVID19")
-
 
 #Data
 covid19pt <-read.csv("https://raw.githubusercontent.com/dssg-pt/covid19pt-data/master/data.csv", stringsAsFactors = FALSE)
