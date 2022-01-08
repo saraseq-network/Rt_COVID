@@ -1060,9 +1060,9 @@ $~$
 <center> 
  **Um trabalho de**
 
-Sara Sequeira [`r icon::fa("linkedin")`](https://www.linkedin.com/in/sara-sequeira-1b5085152/) | Teresa da Penha Coutinho [`r icon::fa("linkedin")`](https://www.linkedin.com/in/teresa-da-penha-coutinho/) | Inês Marçal Antunes [`r icon::fa("linkedin")`](https://www.linkedin.com/in/in%C3%AAs-antunes-b332401b9/)
+Sara Sequeira [`r icon::fa("linkedin")`](https://www.linkedin.com/in/sara-sequeira-1b5085152/)
 
-sarasequeira5@hotmail.com; teresa.jesus.coutinho@gmail.com; ines.marcal.antunes@gmail.com; 
+sarasequeira5@hotmail.com;
 
 [`r icon::fa("github")`](https://github.com/EpiVet2020/Rt_COVID19.git)
 
