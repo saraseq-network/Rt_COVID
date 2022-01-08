@@ -1,6 +1,6 @@
 ---
 title: "Análise comparativa entre Rt de diferentes países"
-author: Teresa da Penha Coutinho, Sara Sequeira e Inês Marçal Antunes
+author: Sara Sequeira
 date: "Novembro, 2020"
 output:
   html_document:
@@ -2416,9 +2416,8 @@ $~$
 <center> 
  **Um trabalho de**
 
-Teresa da Penha Coutinho [`r icon::fa("linkedin")`](https://www.linkedin.com/in/teresa-da-penha-coutinho/) | Sara Sequeira [`r icon::fa("linkedin")`](https://www.linkedin.com/in/sara-sequeira-1b5085152/) | Inês Marçal Antunes [`r icon::fa("linkedin")`](https://www.linkedin.com/in/in%C3%AAs-antunes-b332401b9/) | 
-
-teresa.jesus.coutinho@gmail.com; sarasequeira5@hotmail.com; ines.marcal.antunes@gmail.com; 
+Sara Sequeira [`r icon::fa("linkedin")`](https://www.linkedin.com/in/sara-sequeira-1b5085152/)
+sarasequeira5@hotmail.com
 
 [`r icon::fa("github")`](https://github.com/EpiVet2020/Rt_COVID19.git)
 
