@@ -34,10 +34,6 @@ library(scales)
 library(tibble)
 
 
-setwd("C:/Users/teres/Desktop/EPIVET/COVID19/Rt_COVID19")
-setwd("C:/Users/ines/Documents/Estágio Epidemiologia/COVID19/Rt_COVID19")
-
-
 #Data OUTROS PAÍSES e transformação para formato de data
 
 # ITÁLIA (https://github.com/pcm-dpc/COVID-19/blob/master/dati-andamento-nazionale/dpc-covid19-ita-andamento-nazionale.csv)
