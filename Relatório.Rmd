@@ -1,0 +1,1069 @@
+---
+title: "Estimativa do Número de Reprodução Efetivo (Rt) da COVID19"
+subtitle: "Portugal e Administrações Regionais de Saúde"
+author: Sara Sequeira, Teresa da Penha Coutinho e Inês Marçal Antunes
+date: "Novembro, 2020"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    theme: cosmo
+    toc: yes
+    toc_depth: 3
+
+  html_notebook:
+    code_folding: hide
+    theme: cosmo
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+editor_options: 
+  chunk_output_type: inline
+---
+
+<style type="text/css">
+.main-container {
+  max-width: 1300px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+body {
+text-align: justify}
+</style>
+
+```{css, echo=FALSE}
+/* Whole document: */
+body{
+  font-size: 12pt ;
+}
+```
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.align = 'center')
+```
+
+
+<br><br>
+
+## **Introdução**
+***
+O Número Básico de Reprodução (R0) indica o número médio de casos secundários originados a partir de um caso primário, quando o vírus é introduzido numa população que consiste somente em indivíduos suscetíveis.
+
+Por outro lado, o Número Efetivo de Reprodução (Re ou Rt) indica também, em média, o nº de contágios que cada infetado provoca, mas tem como ponto de partida uma população que já esteve exposta ao vírus. Ou seja, leva em conta as medidas postas em prática para travar a disseminação. 
+
+O valor que fomos calcular neste projeto foi o Rt, sendo um indicador essencial para o estudo da evolução de um surto epidémico, permitindo avaliar a efetividade das medidas de contenção e analisar qual o momento mais adequado para o levantamento das restrições implementadas.
+
+<br>
+
+### Interpretação dos valores de Rt
+
+* Quando R > 1, significa que a epidemia continua a crescer e que o número de novos casos será superior ao número de casos atuais; 
+* Por outro lado, quando Rt = 1, ocorre o limiar da transmissão (abaixo deste valor a doença é incapaz de se manter numa população). 
+
+O objetivo mais importante será manter um Rt inferior ou igual a 1 até à disponibilidade de uma vacina eficaz.
+
+<br>
+
+Este relatório tem como objetivo analisar de que forma se tem alterado o Rt em Portugal e, mais especificamente, em cada região do país. Desta forma, o relatório segue a seguinte ordem de assuntos:
+<br>
+<ul>
+<li>Análise dos dados</li>
+<li>Resultados</li>
+  <ul>
+  <li>Portugal</li>
+  <li>Administrações Regionais de Saúde (ARS's)</li>
+  <li>Análise comparativa entre Administrações Regionais de Saúde (ARS's)</li>
+  </ul>
+  </li>
+<li>Conclusões</li>
+
+<br>
+```{r, warning=FALSE, message= FALSE}
+#Libraries
+library(testthat)
+library(rlang)
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(ggthemes)
+library(plotly)
+library(data.table)
+library(ggpubr)
+library(devtools)
+install_github("holtzy/epuRate")
+library(epuRate)
+library(EpiEstim)
+library(tidyr)
+library(lubridate)
+library(googlesheets)
+require(RCurl)
+library(viridis)
+library(flexdashboard)
+library(here)
+library(rjson)
+library(jsonlite)
+library(RCurl)
+library(highcharter)
+library(here)
+library(purrr)
+library(magrittr)
+library(RColorBrewer)
+library(rjson)
+library(readr)
+library(readxl)
+library(scales)
+library(htmltools)
+install_github("ropenscilabs/icon")
+library(icon)
+library(ggrepel)
+
+
+#Importar dados
+covid19pt <-read.csv("https://raw.githubusercontent.com/dssg-pt/covid19pt-data/master/data.csv", stringsAsFactors = FALSE)
+
+
+#Data de chr para Date
+covid19pt$data <- as.Date(covid19pt$data,"%d-%m-%Y")
+```
+
+<br><br>
+
+
+## **Análise dos dados**
+***
+
+<br>
+No sentido de realizar uma estimativa do Número Efetivo Reprodutivo (Rt), baseámo-nos no modelo referido no artigo [*A New Framework and Software to Estimate Time-Varying Reproduction Numbers During Epidemics*](https://academic.oup.com/aje/article/178/9/1505/89262) publicado no *American Journal of Epidemiology*. <br>
+Utilizando esta ferramenta, através do package [*estimate.R*](https://cran.r-project.org/web/packages/estimatr/estimatr.pdf) disponível, são produzidas estimativas estatisticamente robustas de Rt a partir da distribuição do serial interval, que corresponde ao tempo entre o início dos sintomas num caso primário e o início de sintomas num caso secundário, sendo ainda incorporada incerteza nesta distribuição. Desta forma, conseguimos quantificar as mudanças temporais na intensidade da transmissão de COVID19, tendo em conta a incidência diária, utilizando os dados de vigilância epidemiológica no país. 
+<br>
+Em primeiro lugar, para obtermos estes valores de incidência, recorremos à base de dados disponível no [*GitHub*](https://github.com/dssg-pt/covid19pt-data), cujas fontes incluem a Direcção Geral de Saúde - Ministério da Saúde Português e a base de dados da ESRI Portugal.<br>
+Ainda a referir o Dr. André Peralta Santos, cujo projeto presente no [*GitHub*](https://github.com/aperaltasantos/covid_pt.git), serviu como base para a nossa abordagem.
+<br>
+
+
+```{r fig.align='center', warning=FALSE, message= FALSE}
+# Em primeiro lugar, criámos novas variáveis com a incidência para cada uma das regiões (t - (t-1));
+covid19pt <- mutate(covid19pt, 
+                    confirmados_lag = lag(confirmados),
+                    confirmados_var=confirmados-confirmados_lag,
+                    
+                    confirmados_lag_n = lag(confirmados_arsnorte),
+                    confirmados_var_norte=confirmados_arsnorte-confirmados_lag_n,
+                    
+                    confirmados_lag_centro = lag(x = confirmados_arscentro),
+                    confirmados_var_centro=confirmados_arscentro-confirmados_lag_centro,                   
+                    
+                    confirmados_lag_lvt = lag(confirmados_arslvt),
+                    confirmados_var_lvt=confirmados_arslvt-confirmados_lag_lvt, 
+                    
+                    confirmados_lag_alentejo = lag(confirmados_arsalentejo),
+                    confirmados_var_alentejo=confirmados_arsalentejo-confirmados_lag_alentejo, 
+                    
+                    confirmados_lag_algarve = lag(confirmados_arsalgarve),
+                    confirmados_var_algarve=confirmados_arsalgarve-confirmados_lag_algarve, 
+                    
+                    confirmados_lag_acores = lag(confirmados_acores ),
+                    confirmados_var_acores=confirmados_acores-confirmados_lag_acores, 
+                    
+                    confirmados_lag_madeira = lag(x = confirmados_madeira),
+                    confirmados_var_madeira=confirmados_madeira-confirmados_lag_madeira,
+)
+
+# Após obter as variáveis, criámos uma tabela com a data e incidência respetiva de cada região;
+covid19pt_var <- covid19pt %>%
+    select(
+        data, confirmados_var, confirmados_var_norte, confirmados_var_centro, confirmados_var_lvt, confirmados_var_alentejo, confirmados_var_algarve, confirmados_var_acores, confirmados_var_madeira
+    )
+
+# Definição da data de partida para os nossos cálculos;
+covid_pt_var <- covid19pt_var  %>%
+    filter(covid19pt_var$data > as.Date("2020-02-28")) %>%       
+    dplyr::mutate(t_start = dplyr::row_number())
+
+
+# Estimativa do Rt, segundo uma janela de 7 dias, recorrendo ao EpiEstim, ajustado aos casos importados e assumindo o seguinte serial interval (método uncertain), presente em https://cmmid.github.io/topics/covid19/current-patterns-transmission/global-time-varying-transmission.html:
+## mean 4.7 (95% CrI: 3.7, 6.0), truncated at 3,7 and 6,0
+## sd 2.9 (95% CrI: 1.9, 4.9), truncated at 1,9 and 4,9
+
+## Definir o Serial Interval e janela de visualização para Portugal e Regiões
+sens_configs <- 
+    make_config(
+        list(
+            mean_si = 4.7, std_mean_si = 0.7,
+            min_mean_si = 3.7, max_mean_si = 6.0,
+            std_si = 2.9, std_std_si = 0.5,
+            min_std_si = 1.9, max_std_si = 4.9,
+            n1 = 1000,
+            n2 = 100,
+            seed = 123456789
+        )
+    )
+```
+
+
+## **Resultados**
+***
+### **Portugal**
+***
+
+Neste capítulo, iremos abordar a forma como tem evoluído a transmissão de infeção em Portugal com base nos nossos resultados da evolução do Rt.
+<br>
+Através do gráfico abaixo, observa-se que o número médio de pessoas contagiadas por cada infetado chegou a assumir valores de Rt de 4,97 no início da pandemia (07/03/2020), tendo posteriormente diminuído na sequência do encerramento das escolas em Portugal (dia 16 de Março) e a declaração do estado de emergência a nível nacional (dia 18 de Março). <br>
+A média do R(t) para o período entre 16 de Abril e 6 de Maio manteve-se abaixo de 1, significando que, neste período, um caso infetado originou em média menos de 1 caso secundário, o que indica uma redução expressiva da transmissão da infeção desde a implementação das medidas de contenção em Portugal. <br>
+Em finais de Agosto, os valores de Rt voltaram a aumentar, possivelmente devido ao levantamento de algumas restrições. Em Setembro, o Rt chegou a atingir valores de 1,358 com o consequente regresso ao período de atividade (trabalho, escolas, transportes públicos, etc), tendo atingido o valor mais alto no dia 16 de Outubro de 2020 (Rt = 1,477). A declaração do estado de calamidade a nível nacional, no dia 15 de Outubro, permitiu garantir um decréscimo da transmissibilidade neste período.
+
+<br>
+
+
+```{r warning=FALSE, message=FALSE, message= FALSE}
+# Aplicar a função Estimate_R
+Rt_nonparam_si <- estimate_R(covid_pt_var$confirmados_var, 
+                             method = "uncertain_si",
+                             config = sens_configs )
+
+## Determinação do Rt (sample from the posterior R distribution)
+## Definir a nossa janela com base no t_start
+sample_windows <- seq(length(Rt_nonparam_si$R$t_start))
+
+## Map function: applies a function to each element of a list and returns an object of the same type as the input 
+### Criar um data frame com valores de R
+posterior_R_t <- 
+    map(.x = sample_windows,
+        .f = function(x) {
+            ## Sample from  the posterior R distribution
+            posterior_sample_obj <- 
+                sample_posterior_R(
+                    R = Rt_nonparam_si,
+                    n = 1000, 
+                    window = x )
+            ## Returns a data frame
+            posterior_sample_estim <- 
+                data.frame(
+                    window_index = x,
+                    window_t_start = Rt_nonparam_si$R$t_start[x],
+                    window_t_end = Rt_nonparam_si$R$t_end[x],
+                    date_point = covid_pt_var[covid_pt_var$t_start == Rt_nonparam_si$R$t_end[x], "data"],
+                    R_e_median = median(posterior_sample_obj),
+                    R_e_q0025 = quantile(posterior_sample_obj, probs = 0.025),
+                    R_e_q0975 = quantile(posterior_sample_obj, probs = 0.975))
+            
+            return(posterior_sample_estim)}
+    ) %>% 
+    ##Combines elements into a single value
+    reduce(bind_rows)
+
+
+## GRÁFICO ggplot
+### Linhas a adicionar no gráfico
+d=data.frame(date=as.Date(c("2020-03-16", "2020-03-18", "2020-10-15", "2020-11-09")), Evento=c("Encerramento das Escolas", "Estado de Emergência", "Estado de Calamidade", "Estado de Emergência"))
+
+gráfico_PT <- ggplot(posterior_R_t, aes(x = date_point, y = R_e_median)) +
+  geom_line(colour = "palegreen4",  alpha = 0.5, size = 1, aes(group = 1, text = paste('Data: ', date_point,
+                                                                                       '<br>Rt médio: ', R_e_median))) +
+  geom_ribbon(aes(ymin = R_e_q0025, ymax = R_e_q0975), alpha = 0.3, fill = "palegreen3") +
+  
+  labs(title = "Evolução do Número Reprodutivo Efetivo em Portugal",
+       x = "Data",
+       y = "Número Reprodutivo Efetivo (Rt)") +
+  theme_minimal() +
+  theme(plot.title = element_text(size=10, face= "bold"),
+        plot.subtitle = element_text(size= 8),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        axis.title.y = element_text(size = 7),
+        axis.title.x = element_text(size = 7)) +
+ 
+   scale_x_date(date_breaks = "2 weeks", labels = date_format("%b %d"), 
+                limits = c(min(covid_pt_var$data), max(posterior_R_t$date_point))) +
+  
+  scale_y_continuous(breaks = c(0:15), limits = c(0, 15)) +
+  geom_hline(yintercept = 1, colour= "grey65", alpha= 0.4) +
+  geom_vline(xintercept = as.numeric(as.Date(c("2020-03-16", "2020-03-18", "2020-10-15", "2020-11-09"))), linetype= c("solid", "dotted", "twodash", "dotted"), colour = "indianred4", alpha = 0.5) +
+  geom_vline(data=d, mapping =  aes(xintercept = date, linetype = Evento), size = 1, colour = 'indianred4', alpha = 0.5, show.legend = FALSE) +
+ 
+   ##Adicionar último valor de Rt no gráfico
+  geom_pointrange(data = last(posterior_R_t), mapping = aes(x = date_point, y = R_e_median, ymin = R_e_q0025, ymax = R_e_q0975), stat = "identity", position = "identity", colour = "indianred4", size = 1,5, alpha = 0.8, linetype = "solid") + 
+  annotate(geom = "text", x = last(posterior_R_t$date_point), y = last(posterior_R_t$R_e_median) - 0.5, label = round(last(posterior_R_t$R_e_median), digits = 3), size = 3)
+
+
+ggplotly(gráfico_PT, tooltip = "text") %>%
+  layout(title = list(text = paste0("Portugal", "<br>", "<sup>", "Evolução do Número Efetivo Reprodutivo ao longo do tempo", "</sup>")),
+         legend = list(x = 100, y = 0.5))
+
+
+```
+<br>
+
+### **Administrações Regionais de Saúde (ARS's)** {.tabset .tabset-fade .tabset-pills}
+***
+
+Neste capítulo, iremos abordar de que forma tem evoluído a transmissão de infeção nas ARS's de Portugal.
+
+<br><br>
+
+#### **ARS Norte**
+
+<br>
+
+Através da análise deste gráfico, pode-se verificar que a ARS Norte apresentou o valor mais alto de Rt no início da pandemia (6,13 no dia 7 de Março), o que justifica o elevado número de casos nesta região no período inicial. O elevado número de contágios não foi eficazmente controlado até serem implementadas medidas de restrição em todo o país (dias 16 e 18 de Março). <br>
+Até dia 1 de Junho os valores de Rt foram diminuindo, embora com algumas oscilações, chegando a apresentar o valor mais baixo desde o início da pandemia (0,33) nesta data. Desde então, com o ínicio da terceira fase de desconfinamento a 1 de Junho, o Rt voltou a apresentar valores acima de 1, verificando-se um segundo pico no dia 8 de Junho (1,67). <br>
+Após esta data, os valores mantiveram-se acima de 1 na sua maioria, embora sofrendo algumas oscilações.
+A partir de dia 24 de Julho, cujo Rt equivale a 0,65, os valores de Rt apresentaram-se constantemente acima de 1. De forma a tentar reduzir estes valores novamente abaixo de 1, foi implementado o estado de calamidade nacional no dia 15 de Outubro.
+
+<br>
+
+```{r,fig.align='center', warning=FALSE, message= FALSE}
+# Rt Diário ARS Norte
+## Substituir valores negativos por 0 (funciona para todas as regiões)
+covid_pt_var[-c(2)] <- replace(covid_pt_var[-c(2)], covid_pt_var[-c(2)] < 0, 0)
+
+## Função
+Rt_nonparam_si1 <- 
+    estimate_R(
+        covid_pt_var$confirmados_var_norte, 
+        method = "uncertain_si",
+        config = sens_configs
+    )
+
+## Posterior sample Rt estimate
+sample_windows1 <- seq(length(Rt_nonparam_si1$R$t_start))
+
+posterior_R_t1 <- 
+    map(
+        .x = sample_windows1,
+        .f = function(x) {
+            
+            posterior_sample_obj1 <- 
+                sample_posterior_R(
+                    R = Rt_nonparam_si1,
+                    n = 1000, 
+                    window = x
+                )
+            
+            posterior_sample_estim1 <- 
+                data.frame(
+                    window_index = x,
+                    window_t_start = Rt_nonparam_si1$R$t_start[x],
+                    window_t_end = Rt_nonparam_si1$R$t_end[x],
+                    date_point = covid_pt_var[covid_pt_var$t_start == Rt_nonparam_si1$R$t_end[x], "data"],
+                    R_e_median = median(posterior_sample_obj1),
+                    R_e_q0025 = quantile(posterior_sample_obj1, probs = 0.025),
+                    R_e_q0975 = quantile(posterior_sample_obj1, probs = 0.975)
+                )
+            
+            return(posterior_sample_estim1)
+            
+        }
+    ) %>% 
+    reduce(bind_rows)
+
+## GRÁFICO GGPLOT
+## Linhas a adicionar no gráfico
+d=data.frame(date=as.Date(c("2020-03-16", "2020-03-18", "2020-10-15", "2020-11-09")), Evento=c("Encerramento das Escolas", "Estado de Emergência", "Estado de Calamidade", "Estado de Emergência"))
+
+gráfico_Norte <- ggplot(posterior_R_t1, aes(x = date_point, y = R_e_median)) +
+  geom_line(colour = "palegreen4",  alpha = 0.5, size = 1, aes(group = 1, text = paste('Data: ', date_point,
+                                                                                       '<br>Rt médio: ', R_e_median))) +
+  geom_ribbon(aes(ymin = R_e_q0025, ymax = R_e_q0975), alpha = 0.3, fill = "palegreen3") +
+  
+  labs(title = "Evolução do Número Reprodutivo Efetivo na ARS Norte",
+       x = "Data",
+       y = "Número Reprodutivo Efetivo (Rt)") +
+  theme_minimal() +
+  theme(plot.title = element_text(size=10, face= "bold"),
+        plot.subtitle = element_text(size= 8),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        axis.title.y = element_text(size = 7),
+        axis.title.x = element_text(size = 7)) +
+  
+  scale_x_date(date_breaks = "2 weeks", labels = date_format("%b %d"), 
+               limits = c(min(covid_pt_var$data), max(posterior_R_t1$date_point))) +
+  
+  scale_y_continuous(breaks = c(0:15), limits = c(0, 15)) +
+  geom_hline(yintercept = 1, colour= "grey65", alpha= 0.4) +
+  geom_vline(xintercept = as.numeric(as.Date(c("2020-03-16", "2020-03-18", "2020-10-15", "2020-11-09"))), linetype= c("solid", "dotted", "twodash", "dotted"), colour = "indianred4", alpha = 0.5) +
+  geom_vline(data=d, mapping =  aes(xintercept = date, linetype = Evento), size = 1, colour = 'indianred4', alpha = 0.5, show.legend = FALSE) +
+  
+  ##Adicionar último valor de Rt no gráfico
+  geom_pointrange(data = last(posterior_R_t1), mapping = aes(x = date_point, y = R_e_median, ymin = R_e_q0025, ymax = R_e_q0975), stat = "identity", position = "identity", colour = "indianred4", size = 1,5, alpha = 0.8, linetype = "solid") + 
+  annotate(geom = "text", x = last(posterior_R_t1$date_point), y = last(posterior_R_t1$R_e_median) - 0.5, label = round(last(posterior_R_t1$R_e_median), digits = 3), size = 3)
+
+
+ggplotly(gráfico_Norte, tooltip = "text") %>%
+  layout(title = list(text = paste0("ARS Norte", "<br>", "<sup>", "Evolução do Número Efetivo Reprodutivo ao longo do tempo", "</sup>"), font=list(face="bold")), 
+                      legend = list(x = 100, y = 0.5))
+
+```
+
+<br>
+
+#### **ARS Centro**
+
+<br>
+
+Pela observação do gráfico, pode-se verificar que inicialmente (7 de março) o valor de Rt era relativamente baixo (Rt = 2,25), uma vez que os poucos casos iniciais foram importados e surgiram mais tardiamente em comparação com a ARS Norte. A partir de dia 10 de março, os valores de Rt foram aumentando, atingindo o valor máximo no dia 16 deste mês (Rt = 7,78), na sequência da transmissão que ocorreu a partir dos casos iniciais. 
+Com a implementação das medidas de restrição, nomeadamente o encerramento das escolas e a declaração do estado de emergência nacional, ocorreu uma diminuição abrupta da transmissão e, consequentemente, do Rt, até ao valor mínimo de cerca de 0,44 no dia 14 de maio.
+A partir de meados de maio, com o início do desconfinamento, o Rt foi sofrendo oscilações e apresentou várias vezes valores acima de 1. A partir de finais de Agosto, os valores de Rt praticamente não desceram além de 1. 
+Com o aumento do número de casos que tem existido mais recentemente, assistiu-se no dia 16 de Outubro (Rt = 1,74) ao valor mais elevado desde o início do desconfinamento.
+
+<br>
+
+
+```{r,fig.align='center', warning=FALSE, message= FALSE}
+# Rt Diário ARS Centro 
+Rt_nonparam_si2 <- 
+    estimate_R(
+        covid_pt_var$confirmados_var_centro, 
+        method = "uncertain_si",
+        config = sens_configs
+    )
+
+## Posterior sample Rt estimate
+sample_windows2 <- seq(length(Rt_nonparam_si2$R$t_start))
+
+posterior_R_t2 <- 
+    map(
+        .x = sample_windows2,
+        .f = function(x) {
+            
+            posterior_sample_obj2 <- 
+                sample_posterior_R(
+                    R = Rt_nonparam_si2,
+                    n = 1000, 
+                    window = x
+                )
+            
+            posterior_sample_estim2 <- 
+                data.frame(
+                    window_index = x,
+                    window_t_start = Rt_nonparam_si2$R$t_start[x],
+                    window_t_end = Rt_nonparam_si2$R$t_end[x],
+                    date_point = covid_pt_var[covid_pt_var$t_start == Rt_nonparam_si2$R$t_end[x], "data"],
+                    R_e_median = median(posterior_sample_obj2),
+                    R_e_q0025 = quantile(posterior_sample_obj2, probs = 0.025),
+                    R_e_q0975 = quantile(posterior_sample_obj2, probs = 0.975)
+                )
+            
+            return(posterior_sample_estim2)
+        }
+    ) %>% 
+    reduce(bind_rows)
+
+## GRÁFICO GGPLOT
+gráfico_Centro <- ggplot(posterior_R_t2, aes(x = date_point, y = R_e_median)) +
+  geom_line(colour = "palegreen4",  alpha = 0.5, size = 1, aes(group = 1, text = paste('Data: ', date_point,
+                                                                                       '<br>Rt médio: ', R_e_median))) +
+  geom_ribbon(aes(ymin = R_e_q0025, ymax = R_e_q0975), alpha = 0.3, fill = "palegreen3") +
+  
+  labs(title = "Evolução do Número Reprodutivo Efetivo na ARS Centro",
+       x = "Data",
+       y = "Número Reprodutivo Efetivo (Rt)") +
+  theme_minimal() +
+  theme(plot.title = element_text(size=10, face= "bold"),
+        plot.subtitle = element_text(size= 8),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        axis.title.y = element_text(size = 7),
+        axis.title.x = element_text(size = 7)) +
+  
+  scale_x_date(date_breaks = "2 weeks", labels = date_format("%b %d"), 
+               limits = c(min(covid_pt_var$data), max(posterior_R_t2$date_point))) +
+  
+  scale_y_continuous(breaks = c(0:15), limits = c(0, 15)) +
+  geom_hline(yintercept = 1, colour= "grey65", alpha= 0.4) +
+  geom_vline(xintercept = as.numeric(as.Date(c("2020-03-16", "2020-03-18", "2020-10-15", "2020-11-09"))), linetype= c("solid", "dotted", "twodash", "dotted"), colour = "indianred4", alpha = 0.5) +
+  geom_vline(data=d, mapping =  aes(xintercept = date, linetype = Evento), size = 1, colour = 'indianred4', alpha = 0.5, show.legend = FALSE) +
+  
+  ##Adicionar último valor de Rt no gráfico
+  geom_pointrange(data = last(posterior_R_t2), mapping = aes(x = date_point, y = R_e_median, ymin = R_e_q0025, ymax = R_e_q0975), stat = "identity", position = "identity", colour = "indianred4", size = 1,5, alpha = 0.8, linetype = "solid") + 
+  annotate(geom = "text", x = last(posterior_R_t2$date_point), y = last(posterior_R_t2$R_e_median) - 0.5, label = round(last(posterior_R_t2$R_e_median), digits = 3), size = 3)
+
+
+ggplotly(gráfico_Centro, tooltip = "text") %>%
+  layout(title = list(text = paste0("ARS Centro", "<br>", "<sup>", "Evolução do Número Efetivo Reprodutivo ao longo do tempo", "</sup>"), font=list(face="bold")), 
+         legend = list(x = 100, y = 0.5))
+```
+
+
+<br>
+
+#### **ARS Lisboa e Vale do Tejo**
+<br>
+
+À semelhança do que ocorreu na ARS Centro, inicialmente o valor de Rt do dia 7 de Março não foi o mais elevado, embora tenha apresentado um valor mais significativo (Rt = 4), possivelmente por um superior número de casos importados. O valor máximo de transmissão (Rt = 5,61) foi atingido no dia 15 de março. 
+Novamente, com a implementação de medidas de restrição a nível nacional, verificou-se um decréscimo nos valores de Rt até ao mínimo de 0,497 no dia 17 de Abril. Posteriormente, com o início do desconfinamento, os valores de Rt voltaram a aumentar tendo atingido um novo pico no dia 7 de maio (1,71). Após este dia, estes valores mantiveram-se relativamente constantes até ao final de agosto, na sequência das deslocações coincidentes com o período de férias.
+Findado o período de férias, os valores de Rt mantiveram-se maioritariamente acima de 1. A declaração do estado de calamidade permitiu uma ligeira redução destes valores.
+
+<br>
+```{r,fig.align='center', warning=FALSE, message= FALSE}
+# Rt ARS Lisboa e Vale do Tejo
+Rt_nonparam_si3 <- 
+    estimate_R(
+        covid_pt_var$confirmados_var_lvt, 
+        method = "uncertain_si",
+        config = sens_configs
+    )
+
+## Gráfico
+#plot(Rt_nonparam_si3, legend = FALSE)
+
+## Posterior sample Rt estimate
+sample_windows3 <- seq(length(Rt_nonparam_si3$R$t_start))
+
+posterior_R_t3 <- 
+    map(
+        .x = sample_windows3,
+        .f = function(x) {
+            
+            posterior_sample_obj3 <- 
+                sample_posterior_R(
+                    R = Rt_nonparam_si3,
+                    n = 1000, 
+                    window = x
+                )
+            
+            posterior_sample_estim3 <- 
+                data.frame(
+                    window_index = x,
+                    window_t_start = Rt_nonparam_si3$R$t_start[x],
+                    window_t_end = Rt_nonparam_si3$R$t_end[x],
+                    date_point = covid_pt_var[covid_pt_var$t_start == Rt_nonparam_si3$R$t_end[x], "data"],
+                    R_e_median = median(posterior_sample_obj3),
+                    R_e_q0025 = quantile(posterior_sample_obj3, probs = 0.025),
+                    R_e_q0975 = quantile(posterior_sample_obj3, probs = 0.975)
+                )
+            
+            return(posterior_sample_estim3)
+            
+        }
+    ) %>% 
+    reduce(bind_rows)
+
+
+## GRÁFICO GGPLOT
+gráfico_LVT <- ggplot(posterior_R_t3, aes(x = date_point, y = R_e_median)) +
+  geom_line(colour = "palegreen4",  alpha = 0.5, size = 1, aes(group = 1, text = paste('Data: ', date_point,
+                                                                                       '<br>Rt médio: ', R_e_median))) +
+  geom_ribbon(aes(ymin = R_e_q0025, ymax = R_e_q0975), alpha = 0.3, fill = "palegreen3") +
+  
+  labs(title = "Evolução do Número Reprodutivo Efetivo na ARS LVT",
+       x = "Data",
+       y = "Número Reprodutivo Efetivo (Rt)") +
+  theme_minimal() +
+  theme(plot.title = element_text(size=10, face= "bold"),
+        plot.subtitle = element_text(size= 8),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        axis.title.y = element_text(size = 7),
+        axis.title.x = element_text(size = 7)) +
+  
+  scale_x_date(date_breaks = "2 weeks", labels = date_format("%b %d"), 
+               limits = c(min(covid_pt_var$data), max(posterior_R_t3$date_point))) +
+  
+  scale_y_continuous(breaks = c(0:15), limits = c(0, 15)) +
+  geom_hline(yintercept = 1, colour= "grey65", alpha= 0.4) +
+  geom_vline(xintercept = as.numeric(as.Date(c("2020-03-16", "2020-03-18", "2020-10-15", "2020-11-09"))), linetype= c("solid", "dotted", "twodash", "dotted"), colour = "indianred4", alpha = 0.5) +
+  geom_vline(data=d, mapping =  aes(xintercept = date, linetype = Evento), size = 1, colour = 'indianred4', alpha = 0.5, show.legend = FALSE) +
+  
+  ##Adicionar último valor de Rt no gráfico
+  geom_pointrange(data = last(posterior_R_t3), mapping = aes(x = date_point, y = R_e_median, ymin = R_e_q0025, ymax = R_e_q0975), stat = "identity", position = "identity", colour = "indianred4", size = 1,5, alpha = 0.8, linetype = "solid") + 
+  annotate(geom = "text", x = last(posterior_R_t3$date_point), y = last(posterior_R_t3$R_e_median) - 0.5, label = round(last(posterior_R_t3$R_e_median), digits = 3), size = 3)
+
+
+ggplotly(gráfico_LVT, tooltip = "text") %>%
+  layout(title = list(text = paste0("ARS Lisboa e Vale do Tejo", "<br>", "<sup>", "Evolução do Número Efetivo Reprodutivo ao longo do tempo", "</sup>"), font=list(face="bold")), 
+         legend = list(x = 100, y = 0.5))
+```
+
+<br>
+
+#### **ARS Alentejo**
+
+<br>
+No dia 4 de Março, correspondente ao período de contágio dos primeiros casos de COVID-19 no país, o valor de Rt nesta ARS foi de 3,75. A partir deste dia os valores sofreram um aumento considerável até atingir um pico no dia 15 de Março de 13,66, o que coincide com o aumento generalizado de casos no país. Desta forma, é possível constatar que a ARS do Alentejo foi a que apresentou maior número médio de casos secundários resultantes de um caso infectado.
+Após este pico e a implementação do estado de emergência nacional os valores decresceram, com algumas oscilações, até apresentarem um minímo de 0.09 no dia 4 de Maio.
+Com a aplicação das fases de desconfinamento a partir de 4 de Maio, iniciando-se a última fase de desconfinamento no dia 1 de Junho, surgiu novamente um aumento de casos, que culminou com um novo pico de transmissão no dia 17 de Junho (Rt = 5,09). Existiu posteriormente uma redução destes valores, que se mantiveram inferiores a 1 até ao dia 14 de Julho. Após este dia os valores sofreream oscilações, mantendo-se maioritariamente acima de 1 até atingir um novo pico de transmissão no dia 13 de Outubro (Rt = 3,14), 
+que sofreu uma redução devido à implentação do Estado de Calamidade a 15 de Outubro, apresentando actualmente valores inferiores a 1.
+
+<br>
+```{r,fig.align='center', warning=FALSE, message= FALSE}
+# Rt ARS Alentejo
+Rt_nonparam_si4 <- 
+    estimate_R(
+        covid_pt_var$confirmados_var_alentejo, 
+        method = "uncertain_si",
+        config = sens_configs
+    )
+
+## Gráfico
+#plot(Rt_nonparam_si4, legend = FALSE)
+
+## Posterior sample Rt estimate
+sample_windows4 <- seq(length(Rt_nonparam_si4$R$t_start))
+
+posterior_R_t4 <- 
+    map(
+        .x = sample_windows4,
+        .f = function(x) {
+            
+            posterior_sample_obj4 <- 
+                sample_posterior_R(
+                    R = Rt_nonparam_si4,
+                    n = 1000, 
+                    window = x
+                )
+            
+            posterior_sample_estim4 <- 
+                data.frame(
+                    window_index = x,
+                    window_t_start = Rt_nonparam_si4$R$t_start[x],
+                    window_t_end = Rt_nonparam_si4$R$t_end[x],
+                    date_point = covid19pt_var[covid_pt_var$t_start == Rt_nonparam_si4$R$t_end[x], "data"],
+                    R_e_median = median(posterior_sample_obj4),
+                    R_e_q0025 = quantile(posterior_sample_obj4, probs = 0.025),
+                    R_e_q0975 = quantile(posterior_sample_obj4, probs = 0.975)
+                )
+            
+            return(posterior_sample_estim4)
+            
+        }
+    ) %>% 
+    reduce(bind_rows)
+
+
+
+## GRÁFICO GGPLOT
+gráfico_Alentejo <- ggplot(posterior_R_t4, aes(x = date_point, y = R_e_median)) +
+  geom_line(colour = "palegreen4",  alpha = 0.5, size = 1, aes(group = 1, text = paste('Data: ', date_point,
+                                                                                       '<br>Rt médio: ', R_e_median))) +
+  geom_ribbon(aes(ymin = R_e_q0025, ymax = R_e_q0975), alpha = 0.3, fill = "palegreen3") +
+  
+  labs(title = "Evolução do Número Reprodutivo Efetivo na ARS Alentejo",
+       x = "Data",
+       y = "Número Reprodutivo Efetivo (Rt)") +
+  theme_minimal() +
+  theme(plot.title = element_text(size=10, face= "bold"),
+        plot.subtitle = element_text(size= 8),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        axis.title.y = element_text(size = 7),
+        axis.title.x = element_text(size = 7)) +
+  
+  scale_x_date(date_breaks = "2 weeks", labels = date_format("%b %d"), 
+               limits = c(min(covid_pt_var$data), max(posterior_R_t4$date_point))) +
+  
+  scale_y_continuous(breaks = c(0:15), limits = c(0, 15)) +
+  geom_hline(yintercept = 1, colour= "grey65", alpha= 0.4) +
+  geom_vline(xintercept = as.numeric(as.Date(c("2020-03-16", "2020-03-18", "2020-10-15", "2020-11-09"))), linetype= c("solid", "dotted", "twodash", "dotted"), colour = "indianred4", alpha = 0.5) +
+  geom_vline(data=d, mapping =  aes(xintercept = date, linetype = Evento), size = 1, colour = 'indianred4', alpha = 0.5, show.legend = FALSE) +
+  
+  ##Adicionar último valor de Rt no gráfico
+  geom_pointrange(data = last(posterior_R_t4), mapping = aes(x = date_point, y = R_e_median, ymin = R_e_q0025, ymax = R_e_q0975), stat = "identity", position = "identity", colour = "indianred4", size = 1,5, alpha = 0.8, linetype = "solid") + 
+  annotate(geom = "text", x = last(posterior_R_t4$date_point), y = last(posterior_R_t4$R_e_median) - 0.5, label = round(last(posterior_R_t4$R_e_median), digits = 3), size = 3)
+
+
+ggplotly(gráfico_Alentejo, tooltip = "text") %>%
+  layout(title = list(text = paste0("ARS Alentejo", "<br>", "<sup>", "Evolução do Número Efetivo Reprodutivo ao longo do tempo", "</sup>"), font=list(face="bold")), 
+         legend = list(x = 100, y = 0.5))
+```
+
+<br>
+
+#### **ARS Algarve**
+<br>
+
+Como é possível visualizar através do gráfico, no início da pandemia (4 de Março) cada caso primário na ARS do Algarve foi responsável por cerca de 3,23 casos secundários, e este valor terá aumentado até ao dia 6 de Março, cujo valor máximo de Rt atingido foi de 9,75. Assim, a seguir ao Alentejo, foi a região que maior transmissibilidade atingiu, a partir de um único caso infetado (não tendo, no entanto, originado um superior número de casos nesta região).
+A partir de 6 de março, a transmissão de infeção foi diminuindo, mas ao contrário das restantes regiões, a implementação de medidas de restrição, como o encerramento das escolas e aplicação do estado de emergência no país, não culminou de forma imediata numa descida do Rt abaixo de 1. Ainda assim, foi ocorrendo uma descida gradual do contágio, tendo apresentado o menor valor no dia 14 de abril (0,39). 
+A partir de maio, com a introdução faseada de medidas de desconfinamento, os valores de transmissão foram-se descontrolando, tendo culminado num novo pico a 16 de Junho (Rt = 5,15), possivelmente em conjunto com uma maior procura desta região como destino de férias. 
+Desde então os valores de Rt voltaram a diminuir, mas nunca se conseguiu controlar a transmissão da infeção, no sentido em que apresentaram valores maioritariamente acima de 1 até ao mês de Novembro.
+
+<br>
+
+```{r,fig.align='center', warning=FALSE, message= FALSE}
+# Rt ARS Algarve
+Rt_nonparam_si5 <- 
+    estimate_R(
+        covid_pt_var$confirmados_var_algarve, 
+        method = "uncertain_si",
+        config = sens_configs
+    )
+
+## Gráfico
+#plot(Rt_nonparam_si5, legend = FALSE)
+
+## Posterior sample Rt estimate
+sample_windows5 <- seq(length(Rt_nonparam_si5$R$t_start))
+
+posterior_R_t5 <- 
+    map(
+        .x = sample_windows5,
+        .f = function(x) {
+            
+            posterior_sample_obj5 <- 
+                sample_posterior_R(
+                    R = Rt_nonparam_si5,
+                    n = 1000, 
+                    window = x
+                )
+            
+            posterior_sample_estim5 <- 
+                data.frame(
+                    window_index = x,
+                    window_t_start = Rt_nonparam_si5$R$t_start[x],
+                    window_t_end = Rt_nonparam_si5$R$t_end[x],
+                    date_point = covid19pt_var[covid_pt_var$t_start == Rt_nonparam_si5$R$t_end[x], "data"],
+                    R_e_median = median(posterior_sample_obj5),
+                    R_e_q0025 = quantile(posterior_sample_obj5, probs = 0.025),
+                    R_e_q0975 = quantile(posterior_sample_obj5, probs = 0.975)
+                )
+            
+            return(posterior_sample_estim5)
+            
+        }
+    ) %>% 
+    reduce(bind_rows)
+
+
+## GRÁFICO GGPLOT
+gráfico_Algarve <- ggplot(posterior_R_t5, aes(x = date_point, y = R_e_median)) +
+  geom_line(colour = "palegreen4",  alpha = 0.5, size = 1, aes(group = 1, text = paste('Data: ', date_point,
+                                                                                       '<br>Rt médio: ', R_e_median))) +
+  geom_ribbon(aes(ymin = R_e_q0025, ymax = R_e_q0975), alpha = 0.3, fill = "palegreen3") +
+  
+  labs(title = "Evolução do Número Reprodutivo Efetivo na ARS Algarve",
+       x = "Data",
+       y = "Número Reprodutivo Efetivo (Rt)") +
+  theme_minimal() +
+  theme(plot.title = element_text(size=10, face= "bold"),
+        plot.subtitle = element_text(size= 8),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        axis.title.y = element_text(size = 7),
+        axis.title.x = element_text(size = 7)) +
+  
+  scale_x_date(date_breaks = "2 weeks", labels = date_format("%b %d"), 
+               limits = c(min(covid_pt_var$data), max(posterior_R_t5$date_point))) +
+  
+  scale_y_continuous(breaks = c(0:15), limits = c(0, 15)) +
+  geom_hline(yintercept = 1, colour= "grey65", alpha= 0.4) +
+  geom_vline(xintercept = as.numeric(as.Date(c("2020-03-16", "2020-03-18", "2020-10-15", "2020-11-09"))), linetype= c("solid", "dotted", "twodash", "dotted"), colour = "indianred4", alpha = 0.5) +
+  geom_vline(data=d, mapping =  aes(xintercept = date, linetype = Evento), size = 1, colour = 'indianred4', alpha = 0.5, show.legend = FALSE) +
+  
+  ##Adicionar último valor de Rt no gráfico
+  geom_pointrange(data = last(posterior_R_t5), mapping = aes(x = date_point, y = R_e_median, ymin = R_e_q0025, ymax = R_e_q0975), stat = "identity", position = "identity", colour = "indianred4", size = 1,5, alpha = 0.8, linetype = "solid") + 
+  annotate(geom = "text", x = last(posterior_R_t5$date_point), y = last(posterior_R_t5$R_e_median) - 0.5, label = round(last(posterior_R_t5$R_e_median), digits = 3), size = 3)
+
+
+ggplotly(gráfico_Algarve, tooltip = "text") %>%
+  layout(title = list(text = paste0("ARS Algarve", "<br>", "<sup>", "Evolução do Número Efetivo Reprodutivo ao longo do tempo", "</sup>"), font=list(face="bold")), 
+         legend = list(x = 100, y = 0.5))
+```
+
+<br>
+
+#### **ARS Açores**
+
+<br>
+
+Na ARS Açores, pode-se verificar um pico inicial do Rt no dia 15 de março, no qual foi atingido um valor máximo de 8,5, e que coincide com o dia em que se registou o primeiro caso nesta ARS. Com o encerramento das escolas e com a declaração do Estado de Emergência nos dias 16 e 18 de março, respetivamente, os valores de Rt sofreram um decréscimo até atingir o valor mais baixo desde o início da pandemia (Rt = 0.156) no dia 15 de maio. A partir do final de maio, com o alívio de algumas medidas de restrição, nomeadamente com a retoma das ligações inter-ilhas (29 de maio), ocorreu um novo pico no dia 1 de junho. Este pico permite inferir que, mesmo com a testagem e/ou quarentena obrigatória de todos os passageiros que chegam às ilhas, não foi possível restringir a transmissão eficazmente. Desde então que o Rt tem vindo a sofrer várias oscilações, com os valores a variar constantemente entre 0.28 e 3.84, sendo que estas têm vindo a estabilizar mais recentemente. No entanto, o Rt mantém-se acima de 1, o que indica a presença de uma trasmissão ativa. 
+
+<br>
+```{r,fig.align='center', warning=FALSE, message= FALSE}
+# Rt ARS Açores
+Rt_nonparam_si6 <- 
+    estimate_R(
+        covid_pt_var$confirmados_var_acores, 
+        method = "uncertain_si",
+        config = sens_configs
+    )
+
+## Posterior sample Rt estimate
+sample_windows6 <- seq(length(Rt_nonparam_si6$R$t_start))
+
+posterior_R_t6 <- 
+    map(
+        .x = sample_windows6,
+        .f = function(x) {
+            
+            posterior_sample_obj6 <- 
+                sample_posterior_R(
+                    R = Rt_nonparam_si6,
+                    n = 1000, 
+                    window = x
+                )
+            
+            posterior_sample_estim6 <- 
+                data.frame(
+                    window_index = x,
+                    window_t_start = Rt_nonparam_si6$R$t_start[x],
+                    window_t_end = Rt_nonparam_si6$R$t_end[x],
+                    date_point = covid_pt_var[covid_pt_var$t_start == Rt_nonparam_si6$R$t_end[x], "data"],
+                    R_e_median = median(posterior_sample_obj6),
+                    R_e_q0025 = quantile(posterior_sample_obj6, probs = 0.025),
+                    R_e_q0975 = quantile(posterior_sample_obj6, probs = 0.975)
+                )
+            
+            return(posterior_sample_estim6)
+            
+        }
+    ) %>% 
+    reduce(bind_rows)
+
+
+d_azo=data.frame(date=as.Date(c("2020-03-16", "2020-03-18","2020-03-26", "2020-05-17", "2020-11-09")), Evento = c("Encerramento das Escolas", "Estado de Emergência Nacional", "Confinamento Obrigatório de Passageiros", "Testagem e/ou Quarentena Obrigatória de Passageiros", "Estado de Emergência Nacional"))
+
+gráfico_Açores <- ggplot(posterior_R_t6, aes(x = date_point, y = R_e_median)) +
+  geom_line(colour = "palegreen4",  alpha = 0.5, size = 1, aes(group = 1, text = paste('Data: ', date_point,
+                                                                                       '<br>Rt médio: ', R_e_median))) +
+  geom_ribbon(aes(ymin = R_e_q0025, ymax = R_e_q0975), alpha = 0.3, fill = "palegreen3") +
+  
+  labs(title = "Evolução do Número Reprodutivo Efetivo na ARS Açores",
+       x = "Data",
+       y = "Número Reprodutivo Efetivo (Rt)") +
+  theme_minimal() +
+  theme(plot.title = element_text(size=10, face= "bold"),
+        plot.subtitle = element_text(size= 8),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        axis.title.y = element_text(size = 7),
+        axis.title.x = element_text(size = 7)) +
+  
+  scale_x_date(date_breaks = "2 weeks", labels = date_format("%b %d"), 
+               limits = c(min(covid_pt_var$data), max(posterior_R_t6$date_point))) +
+  
+  scale_y_continuous(breaks = c(0:15), limits = c(0, 15)) +
+  
+  geom_hline(yintercept = 1, colour= "grey65", alpha= 0.4) +
+  geom_vline(xintercept = as.numeric(as.Date(c("2020-03-16", "2020-03-18","2020-03-26", "2020-05-17", "2020-11-09"))), linetype= c("twodash", "dotted", "solid", "dotdash", "dotted"), colour = "indianred4", alpha = 0.5) +
+  geom_vline(data=d_azo, mapping =  aes(xintercept = date, linetype = Evento), size = 1, colour = 'indianred4', alpha = 0.5, show.legend = FALSE) +
+
+  ##Adicionar último valor de Rt no gráfico
+  geom_pointrange(data = last(posterior_R_t6), mapping = aes(x = date_point, y = R_e_median, ymin = R_e_q0025, ymax = R_e_q0975), stat = "identity", position = "identity", colour = "indianred4", size = 1,5, alpha = 0.8, linetype = "solid") + 
+  annotate(geom = "text", x = last(posterior_R_t6$date_point), y = last(posterior_R_t6$R_e_median) - 0.5, label = round(last(posterior_R_t6$R_e_median), digits = 3), size = 3)
+
+
+ggplotly(gráfico_Açores, tooltip = "text") %>%
+  layout(title = list(text = paste0("ARS Açores", "<br>", "<sup>", "Evolução do Número Efetivo Reprodutivo ao longo do tempo", "</sup>"), font=list(face="bold")), 
+         legend = list(x = 100, y = 0.95))
+
+```
+
+<br>
+
+#### **ARS Madeira**
+
+<br>
+
+Tendo o gráfico abaixo como referência e analisando a evolução do Rt, verifica-se que, mesmo com medidas de restrição implementadas (quarentena obrigatória para todos os passageiros e declaração do Estado de Emergência) mais precocemente do que em outras ARS, estas não impediram a transmissão do vírus e foi atingido um pico (Rt = 9.56) no dia 21 de março. A partir desta data, os valores de Rt diminuíram até 0.087 registado no dia 17 de abril e voltando a aumentar de forma dramática para 5.45 (20 de abril). Este padrão repetiu-se várias vezes ao longo do tempo até meados de agosto e com valores cada vez mais elevados a partir do início do desconfiamento no dia 11 de maio. Desde meio de agosto que os valores de Rt apenas apresentam ligeiras flutuações, sem oscilações abruptas, mas maioritariamente acima de 1. 
+
+<br>
+
+```{r fig.align='center', warning=FALSE, message= FALSE}
+Rt_nonparam_si7 <- 
+    estimate_R(
+        covid_pt_var$confirmados_var_madeira, 
+        method = "uncertain_si",
+        config = sens_configs
+    )
+
+## Posterior sample Rt estimate
+sample_windows7 <- seq(length(Rt_nonparam_si7$R$t_start))
+
+posterior_R_t7 <- 
+    map(
+        .x = sample_windows7,
+        .f = function(x) {
+            
+            posterior_sample_obj7 <- 
+                sample_posterior_R(
+                    R = Rt_nonparam_si7,
+                    n = 1000, 
+                    window = x
+                )
+            
+            posterior_sample_estim7 <- 
+                data.frame(
+                    window_index = x,
+                    window_t_start = Rt_nonparam_si7$R$t_start[x],
+                    window_t_end = Rt_nonparam_si7$R$t_end[x],
+                    date_point = covid_pt_var[covid_pt_var$t_start == Rt_nonparam_si7$R$t_end[x], "data"],
+                    R_e_median = median(posterior_sample_obj7),
+                    R_e_q0025 = quantile(posterior_sample_obj7, probs = 0.025),
+                    R_e_q0975 = quantile(posterior_sample_obj7, probs = 0.975)
+                )
+            
+            return(posterior_sample_estim7)
+            
+        }
+    ) %>% 
+    reduce(bind_rows)
+
+## GRÁFICO GGPLOT
+d_mad=data.frame(date=as.Date(c("2020-03-15", "2020-03-18", "2020-05-11", "2020-05-28", "2020-11-09")), Evento = c("Quarentena obrigatória para todos os passageiros", "Estado de Emergência Nacional", "Início do desconfinamento", "Obrigatoriedade de teste negativo e/ou quarentena para todos os passageiros", "Estado de Emergência Nacional"))
+
+
+gráfico_Madeira <- ggplot(posterior_R_t7, aes(x = date_point, y = R_e_median)) +
+  geom_line(colour = "palegreen4",  alpha = 0.5, size = 1, aes(group = 1, text = paste('Data: ', date_point,
+                                                                                       '<br>Rt médio: ', R_e_median))) +
+  geom_ribbon(aes(ymin = R_e_q0025, ymax = R_e_q0975), alpha = 0.3, fill = "palegreen3") +
+  
+  labs(title = "Evolução do Número Reprodutivo Efetivo na ARS Madeira",
+       x = "Data",
+       y = "Número Reprodutivo Efetivo (Rt)") +
+  theme_minimal() +
+  theme(plot.title = element_text(size=10, face= "bold"),
+        plot.subtitle = element_text(size= 8),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        axis.title.y = element_text(size = 7),
+        axis.title.x = element_text(size = 7)) +
+  
+  scale_x_date(date_breaks = "2 weeks", labels = date_format("%b %d"), 
+               limits = c(min(covid_pt_var$data), max(posterior_R_t7$date_point))) +
+  
+  scale_y_continuous(breaks = c(0:15), limits = c(0, 15)) +
+  
+  geom_hline(yintercept = 1, colour= "grey65", alpha= 0.4) +
+  geom_vline(xintercept = as.numeric(as.Date(c("2020-03-15", "2020-03-18", "2020-05-11", "2020-05-28", "2020-11-09"))), linetype= c("dotdash", "solid", "twodash", "dotted", "solid"), colour = "indianred4", alpha = 0.5) +
+  geom_vline(data=d_mad, mapping =  aes(xintercept = date, linetype = Evento), size = 1, colour = 'indianred4', alpha = 0.5, show.legend = FALSE) +
+  
+  ##Adicionar último valor de Rt no gráfico
+  geom_pointrange(data = last(posterior_R_t7), mapping = aes(x = date_point, y = R_e_median, ymin = R_e_q0025, ymax = R_e_q0975), stat = "identity", position = "identity", colour = "indianred4", size = 1,5, alpha = 0.8, linetype = "solid") + 
+  annotate(geom = "text", x = last(posterior_R_t7$date_point), y = last(posterior_R_t7$R_e_median) - 0.5, label = round(last(posterior_R_t7$R_e_median), digits = 3), size = 3)
+
+
+ggplotly(gráfico_Madeira, tooltip = "text") %>%
+  layout(title = list(text = paste0("ARS Madeira", "<br>", "<sup>", "Evolução do Número Efetivo Reprodutivo ao longo do tempo", "</sup>"), font=list(face="bold")), 
+         legend = list(x = 100, y = 0.95))
+
+```
+
+
+<br>
+
+### **Análise Comparativa entre Administrações Regionais de Saúde (ARS's)**
+***
+
+Através do gráfico, que sobrepõe a evolução do Número Reprodutivo Efetivo das várias ARS's, é possível realizar uma análise comparativa entre regiões.
+
+<br>
+```{r, out.width="50%", message= FALSE}
+
+# Análise comparativa entre regiões
+## Data frame com as regiões que começam no dia 7 de Março
+regioes_Rt7 <- as.data.frame(cbind(posterior_R_t1$R_e_median, posterior_R_t2$R_e_median, posterior_R_t3$R_e_median, posterior_R_t6$R_e_median, posterior_R_t7$R_e_median))
+names(regioes_Rt7) <- c("Norte", "Centro", "LVT", "Açores", "Madeira")
+regioes_Rt7_tempo <- as.data.frame(cbind(posterior_R_t1$date_point, regioes_Rt7))
+names(regioes_Rt7_tempo) <- c("Data","Norte", "Centro", "LVT", "Açores", "Madeira")
+
+regioes_Rt7_tempo_melt <- reshape2::melt(regioes_Rt7_tempo, id.vars="Data")
+names(regioes_Rt7_tempo_melt)[2:3] <- c("Regiões", "Rt_Médio")
+
+
+## Data frame com as regiões que começam no dia 8 de Março
+regioes_Rt4 <- as.data.frame(cbind(posterior_R_t4$R_e_median, posterior_R_t5$R_e_median))
+names(regioes_Rt4) <- c("Alentejo", "Algarve")
+regioes_Rt4_tempo <- as.data.frame(cbind(posterior_R_t4$date_point, regioes_Rt4))
+names(regioes_Rt4_tempo) <- c("Data","Alentejo", "Algarve")
+
+regioes_Rt4_tempo_melt <- reshape2::melt(regioes_Rt4_tempo, id.vars="Data")
+names(regioes_Rt4_tempo_melt)[2:3] <- c("Regiões", "Rt_Médio")
+
+
+regioes_Rt_tempo <- rbind(regioes_Rt7_tempo_melt, regioes_Rt4_tempo_melt)
+
+
+## Fazer o gráfico de linhas
+Rt_regioes_tempo_graph <- ggplot(regioes_Rt_tempo, aes(x = Data, y = Rt_Médio, color = Regiões, group=1)) +
+  geom_point(aes(text = paste('Data: ', Data,
+                              '<br>ARS: ', Regiões,
+                              '<br>Rt Médio: ', Rt_Médio)), size = 0.1 ) +
+  geom_line(size=0.5) +
+  scale_color_discrete(labels = c("Norte", "Centro", "LVT", "Açores", "Madeira", "Alentejo", "Algarve")) +
+  xlab("") +
+  ylab("Rt Médio") +
+
+  theme(legend.title = element_blank(),
+        axis.text.y = element_text(size = 7),
+        axis.text.x = element_text(size = 7, angle = 60, hjust = 1)) +
+  
+  labs(x = "",
+       y = "Incidência") +
+  
+  scale_x_date(
+    date_breaks = "2 weeks", labels = date_format("%b %d"),
+    limits = c(min(covid_pt_var$data), max(posterior_R_t7$date_point))) +
+ 
+   scale_y_continuous(
+    breaks = 0:ceiling(max(posterior_R_t7$R_e_q0975)),
+    limits = c(0, NA)
+  )
+  
+  
+### Fazer com que gráfico seja interativo
+ggplotly(Rt_regioes_tempo_graph, tooltip = "text") %>% 
+  layout(yaxis = list(title = paste0(c(rep("&nbsp;", 20),
+                                       "Rt Médio",
+                                       rep("&nbsp;", 20),
+                                       rep("\n&nbsp;", 2)),
+                                     collapse = "")),
+         legend = list(x = 1, y = 0))
+```
+
+<br>
+
+## **Análise do Número Efetivo Reprodutivo em Portugal e suas ARS**
+***
+
+No gráfico representado, podemos avaliar o valor de Rt mais atual associado a cada país.
+
+<br>
+
+
+```{r, fig.show="hold", out.width="50%", message= FALSE}
+# Gráfico último Rt
+## Tabela com último Rt para cada região
+last_Rt <- as.data.frame(rbind(last(posterior_R_t), last(posterior_R_t1), last(posterior_R_t2), last(posterior_R_t3), last(posterior_R_t4), last(posterior_R_t5), last(posterior_R_t6), last(posterior_R_t7)))
+last_Rt <- last_Rt[, -c(1:4)]
+last_Rt <- cbind(c("Portugal", "Norte", "Centro", "LVT", "Alentejo", "Algarve", "Açores", "Madeira"), last_Rt)
+names(last_Rt)[1] <- "ARS"
+
+##GGPlot
+ggplot(last_Rt, aes(x = ARS, y = R_e_median, color = ARS)) + 
+  labs(title = "Rt atual em Portugal e nas suas Administrações Regionais de Saúde (ARS's)",
+       x = "ARS's",
+       y = "Número Reprodutivo Efetivo (Rt)") +
+  theme_minimal() +
+  theme(plot.title = element_text(size=10, face= "bold"),
+        axis.title.y = element_text(size = 10),
+        axis.title.x = element_text(size = 10)) +
+  scale_y_continuous(breaks = seq(0, max(last_Rt$R_e_q0975), by = 0.1)) + 
+  geom_pointrange(aes(ymin = R_e_q0025, ymax = R_e_q0975, shape = ARS), size = 0.5, alpha = 0.8) +
+  scale_shape_manual(values = c(18, 8, 11, 16, 4, 17, 9, 15)) +
+  geom_text_repel(label = round((last_Rt$R_e_median), digits = 2), color = "black", size = 2.5) +
+  geom_hline(yintercept = 1, colour = "grey65")
+```
+
+## **Conclusão**
+***
+Através desta análise é particularmente visível o impacto que a falta de medidas de restrição pode significar na evolução desta doença ao longo do tempo e, nomeadamente, no Número Efetivo Reprodutivo (Rt). Esta conclusão reforça a importância de planear atempadamente a implementação de medidas de confinamento num país/região, especialmente por todas as implicações sociais e económicas que estas podem suscitar.
+
+As estimativas de R obtidas com nosso método são bastante sensíveis ao tamanho da janela deslizante sobre a qual as estimativas são calculadas. Ainda assim, identificamos algumas limitações associadas ao método utilizado, nomeadamente: 
+ - Presumimos que todos os casos foram detetados (inclusive assintomáticos), o que pode não levar a grandes desvios na estimativa, desde que a proporção de casos assintomáticos e taxa de notificação sejam constantes no tempo; 
+ - Partimos do pressuposto que não houve casos importados de forma que cada novo caso confirmado pode ser atribuído a um caso anterior na série temporal de incidência;
+ - Presumimos que a distribuição do serial interval foi constante ao longo da pandemia, o que pode não se refletir. Esta limitação poderia ter sido ultrapassada, definindo diferentes distribuições de serial interval aplicadas a diferentes períodos da doença, no entanto, não obtivemos dados suficientes para realizar essa diferenciação;
+ - Este método pressupõe que o período infetante tem como ponto de partida o momento do início dos sintomas (independente do período de incubação), o que leva a estimativas exatas mas desfasadas do Rt. Embora para muitas doenças seja uma suposição sensata, pode não ser válida para doenças cuja infecciosidade precede os sintomas.
+
+<br>
+<br>
+
+$~$
+<center> 
+ **Um trabalho de**
+
+Sara Sequeira [`r icon::fa("linkedin")`](https://www.linkedin.com/in/sara-sequeira-1b5085152/) | Teresa da Penha Coutinho [`r icon::fa("linkedin")`](https://www.linkedin.com/in/teresa-da-penha-coutinho/) | Inês Marçal Antunes [`r icon::fa("linkedin")`](https://www.linkedin.com/in/in%C3%AAs-antunes-b332401b9/)
+
+sarasequeira5@hotmail.com; teresa.jesus.coutinho@gmail.com; ines.marcal.antunes@gmail.com; 
+
+[`r icon::fa("github")`](https://github.com/EpiVet2020/Rt_COVID19.git)
+
+</center>
